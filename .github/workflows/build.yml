@@ -18,16 +18,15 @@ jobs:
           sudo apt install -y build-essential bc bison flex libssl-dev libelf-dev libncurses-dev cpio zip
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
-      - name: Build Kernel
+      - name: Build Kernel & DTBs
         run: |
-          # Export required architecture and toolchain paths
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
           
           mkdir -p out
           
-          # 1. Generate base judypn defconfig (with ARCH=arm64)
+          # 1. Generate base judypn defconfig
           make O=out ARCH=arm64 lineageos_judypn_defconfig
           
           # 2. Merge halium.config if present
@@ -35,21 +34,33 @@ jobs:
             ARCH=arm64 ./scripts/kconfig/merge_config.sh -m -O out out/.config arch/arm64/configs/halium.config
           fi
           
-          # 3. Disable 32-bit vDSO to prevent runner linker mismatch
+          # 3. Disable 32-bit vDSO
           ./scripts/config --file out/.config --disable CONFIG_COMPAT_VDSO
           make O=out ARCH=arm64 olddefconfig
 
-          # 4. Compile kernel and dtbs
+          # 4. Compile Image.gz and DTBs
           make -j$(nproc --all) O=out \
             ARCH=arm64 \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            Image.gz-dtb dtbs
+            Image.gz dtbs
 
-      - name: Upload Kernel Artifact
+      - name: Stage Artifacts
+        run: |
+          mkdir -p artifacts
+          # Copy kernel binary
+          cp out/arch/arm64/boot/Image.gz artifacts/
+          
+          # Copy device tree blobs
+          cp out/arch/arm64/boot/dts/qcom/*.dtb artifacts/ 2>/dev/null || true
+          
+          # Also generate a concatenated DTB image (frequently used by header v2 SDM845)
+          cat out/arch/arm64/boot/dts/qcom/*.dtb > artifacts/dtb.img 2>/dev/null || true
+
+      - name: Upload Kernel & DTB Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: judypn-halium-kernel
-          path: out/arch/arm64/boot/Image.gz-dtb
+          name: judypn-header-v2-kernel
+          path: artifacts/
