@@ -20,21 +20,30 @@ jobs:
 
       - name: Build Kernel
         run: |
+          # Export required architecture and toolchain paths
+          export ARCH=arm64
+          export SUBARCH=arm64
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          
           mkdir -p out
           
-          # Base config & merge halium
-          make O=out lineageos_judypn_defconfig
+          # 1. Generate base judypn defconfig (with ARCH=arm64)
+          make O=out ARCH=arm64 lineageos_judypn_defconfig
+          
+          # 2. Merge halium.config if present
           if [ -f arch/arm64/configs/halium.config ]; then
-            ./scripts/kconfig/merge_config.sh -m -O out out/.config arch/arm64/configs/halium.config
+            ARCH=arm64 ./scripts/kconfig/merge_config.sh -m -O out out/.config arch/arm64/configs/halium.config
           fi
+          
+          # 3. Disable 32-bit vDSO to prevent runner linker mismatch
           ./scripts/config --file out/.config --disable CONFIG_COMPAT_VDSO
-          make O=out olddefconfig
+          make O=out ARCH=arm64 olddefconfig
 
-          # Build
+          # 4. Compile kernel and dtbs
           make -j$(nproc --all) O=out \
             ARCH=arm64 \
             CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             Image.gz-dtb dtbs
